@@ -1,7 +1,9 @@
 package com.clinica.pagos.domain.service;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,13 +44,13 @@ public class PagoService {
         }
         
         // Si no se especifica la fecha, usar la fecha actual
-        if (dto.getFechaPago() == null) {
+        if (dto.getFechaPago() == null && !"PENDIENTE".equals(dto.getEstado())) {
             dto.setFechaPago(LocalDateTime.now());
         }
         
-        // Por defecto, el estado es COMPLETADO
+        // Por defecto, el estado es PENDIENTE
         if (dto.getEstado() == null) {
-            dto.setEstado("COMPLETADO");
+            dto.setEstado("PENDIENTE");
         }
         
         PagoDTO pagoGuardado = repo.save(dto);
@@ -57,11 +59,65 @@ public class PagoService {
     }
 
     public PagoDTO actualizar(Long id, PagoDTO dto) {
-        PagoDTO pagoActualizado = repo.update(id, dto);
-        if (pagoActualizado != null) {
-            enriquecerPago(pagoActualizado);
+        Optional<PagoDTO> pagoExistente = repo.getById(id);
+        if (pagoExistente.isPresent()) {
+            PagoDTO pagoActual = pagoExistente.get();
+            
+            // Si cambia el estado a PAGADO, notificar a Citas
+            if ("PAGADO".equals(dto.getEstado()) && !"PAGADO".equals(pagoActual.getEstado())) {
+                dto.setFechaPago(LocalDateTime.now());
+                
+                // Actualizar el pago
+                PagoDTO pagoActualizado = repo.update(id, dto);
+                
+                // Notificar a Citas
+                try {
+                    Map<String, Object> payload = new HashMap<>();
+                    payload.put("estadoPago", "PAGADO");
+                    payload.put("pagoId", pagoActualizado.getId());
+                    
+                    citaClient.actualizarEstadoPago(pagoActualizado.getCitaId(), payload);
+                } catch (Exception e) {
+                    System.err.println("Error al notificar a citas: " + e.getMessage());
+                }
+                
+                enriquecerPago(pagoActualizado);
+                return pagoActualizado;
+            } else {
+                PagoDTO pagoActualizado = repo.update(id, dto);
+                enriquecerPago(pagoActualizado);
+                return pagoActualizado;
+            }
         }
-        return pagoActualizado;
+        return null;
+    }
+    
+    public PagoDTO procesarPago(Long id, String metodoPago) {
+        Optional<PagoDTO> pagoExistente = repo.getById(id);
+        if (pagoExistente.isPresent()) {
+            PagoDTO pagoDTO = pagoExistente.get();
+            pagoDTO.setEstado("PAGADO");
+            pagoDTO.setMetodoPago(metodoPago);
+            pagoDTO.setFechaPago(LocalDateTime.now());
+            
+            // Actualizar el pago
+            PagoDTO pagoActualizado = repo.update(id, pagoDTO);
+            
+            // Notificar a Citas
+            try {
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("estadoPago", "PAGADO");
+                payload.put("pagoId", pagoActualizado.getId());
+                
+                citaClient.actualizarEstadoPago(pagoActualizado.getCitaId(), payload);
+            } catch (Exception e) {
+                System.err.println("Error al notificar a citas: " + e.getMessage());
+            }
+            
+            enriquecerPago(pagoActualizado);
+            return pagoActualizado;
+        }
+        return null;
     }
 
     public boolean eliminar(Long id) {

@@ -1,6 +1,7 @@
 package com.clinica.pagos.controller;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,5 +66,20 @@ public class PagoController {
     @GetMapping("/estado/{estado}")
     public List<PagoDTO> getByEstado(@PathVariable String estado) {
         return svc.obtenerPorEstado(estado);
+    }
+    
+    // Nuevo endpoint para procesar un pago
+    @PutMapping("/{id}/pagar")
+    public ResponseEntity<PagoDTO> procesarPago(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> payload) {
+        
+        String metodoPago = payload.getOrDefault("metodoPago", "EFECTIVO");
+        
+        PagoDTO pagoActualizado = svc.procesarPago(id, metodoPago);
+        if (pagoActualizado != null) {
+            return ResponseEntity.ok(pagoActualizado);
+        }
+        return ResponseEntity.notFound().build();
     }
 }
